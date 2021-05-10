@@ -540,11 +540,11 @@ fn detect_mime(file_path: impl AsRef<Path>) -> &'static str {
     }
 }
 
-pub(crate) fn rustdoc_archive_path(name: &str, version: &str) -> String {
+pub fn rustdoc_archive_path(name: &str, version: &str) -> String {
     format!("rustdoc/{0}/{1}.zip", name, version)
 }
 
-pub(crate) fn source_archive_path(name: &str, version: &str) -> String {
+pub fn source_archive_path(name: &str, version: &str) -> String {
     format!("sources/{0}/{1}.zip", name, version)
 }
 
