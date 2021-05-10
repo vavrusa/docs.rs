@@ -25,7 +25,7 @@ pub struct CrateData {
 }
 
 #[derive(Debug)]
-pub(crate) struct ReleaseData {
+pub struct ReleaseData {
     pub(crate) release_time: DateTime<Utc>,
     pub(crate) yanked: bool,
     pub(crate) downloads: i32,

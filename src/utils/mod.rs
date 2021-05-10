@@ -7,6 +7,7 @@ pub(crate) use self::html::rewrite_lol;
 pub use self::queue::{get_crate_priority, remove_crate_priority, set_crate_priority};
 pub use self::queue_builder::queue_builder;
 pub(crate) use self::rustc_version::parse_rustc_version;
+pub use cargo_metadata::Package;
 
 #[cfg(test)]
 pub(crate) use self::cargo_metadata::{Dependency, Target};
