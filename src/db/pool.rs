@@ -1,22 +1,36 @@
 use crate::metrics::Metrics;
 use crate::Config;
 use log::debug;
-use postgres::{Client, NoTls};
+use postgres::Client;
 use r2d2_postgres::PostgresConnectionManager;
 use std::sync::Arc;
 
-pub type PoolClient = r2d2::PooledConnection<PostgresConnectionManager<NoTls>>;
+#[cfg(feature = "native_tls")]
+pub type ConnectionManager = PostgresConnectionManager<postgres_native_tls::MakeTlsConnector>;
+#[cfg(not(feature = "native_tls"))]
+pub type ConnectionManager = PostgresConnectionManager<postgres::NoTls>;
+
+pub type PoolClient = r2d2::PooledConnection<ConnectionManager>;
 
 const DEFAULT_SCHEMA: &str = "public";
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Pool {
     #[cfg(test)]
-    pool: Arc<std::sync::Mutex<Option<r2d2::Pool<PostgresConnectionManager<NoTls>>>>>,
+    pool: Arc<std::sync::Mutex<Option<r2d2::Pool<ConnectionManager>>>>,
     #[cfg(not(test))]
-    pool: r2d2::Pool<PostgresConnectionManager<NoTls>>,
+    pool: r2d2::Pool<ConnectionManager>,
     metrics: Arc<Metrics>,
     max_size: u32,
+}
+
+impl std::fmt::Debug for Pool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Pool")
+            .field("metrics", &self.metrics)
+            .field("max_size", &self.max_size)
+            .finish()
+    }
 }
 
 impl Pool {
@@ -36,12 +50,32 @@ impl Pool {
         Self::new_inner(config, metrics, schema)
     }
 
+    #[cfg(feature = "native_tls")]
+    fn new_conn_manager(config: postgres::Config) -> Result<ConnectionManager, PoolError> {
+        use native_tls::TlsConnector;
+        use postgres_native_tls::MakeTlsConnector;
+
+        let connector = TlsConnector::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .map_err(PoolError::TlsError)?;
+
+        let connector = MakeTlsConnector::new(connector);
+        Ok(PostgresConnectionManager::new(config, connector))
+    }
+
+    #[cfg(not(feature = "native_tls"))]
+    fn new_conn_manager(config: postgres::Config) -> Result<ConnectionManager, PoolError> {
+        Ok(PostgresConnectionManager::new(config, postgres::NoTls))
+    }
+
     fn new_inner(config: &Config, metrics: Arc<Metrics>, schema: &str) -> Result<Pool, PoolError> {
         let url = config
             .database_url
             .parse()
             .map_err(PoolError::InvalidDatabaseUrl)?;
-        let manager = PostgresConnectionManager::new(url, NoTls);
+
+        let manager = Self::new_conn_manager(url)?;
         let pool = r2d2::Pool::builder()
             .max_size(config.max_pool_size)
             .min_idle(Some(config.min_pool_idle))
@@ -59,10 +93,7 @@ impl Pool {
         })
     }
 
-    fn with_pool<R>(
-        &self,
-        f: impl FnOnce(&r2d2::Pool<PostgresConnectionManager<NoTls>>) -> R,
-    ) -> R {
+    fn with_pool<R>(&self, f: impl FnOnce(&r2d2::Pool<ConnectionManager>) -> R) -> R {
         #[cfg(test)]
         {
             f(self.pool.lock().unwrap().as_ref().unwrap())
@@ -136,4 +167,8 @@ pub enum PoolError {
 
     #[error("failed to get a database connection")]
     ClientError(#[source] r2d2::Error),
+
+    #[cfg(feature = "native_tls")]
+    #[error("failed to create a TLS connector")]
+    TlsError(#[source] native_tls::Error),
 }
